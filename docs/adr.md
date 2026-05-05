@@ -40,6 +40,9 @@
 | 0007 | MOSS 不使用刘琮声纹,纯电子合成 | Accepted |
 | 0008 | 本地用 uv 管依赖,远程服务用 Docker Compose | Accepted |
 | 0009 | 观众语音不录制、不存储、不上传 | Accepted |
+| 0010 | 角色引擎统一 + 实例化配置 | Accepted |
+| 0011 | 特性插件化与 Feature Flag 约定 | Accepted |
+| 0012 | 项目定位为非商业同人作品,沿用原片人物名 | Accepted |
 
 ---
 
@@ -314,3 +317,131 @@ ADR-0006 已决定主进程本地,TTS 远程。两端依赖如何管理?
 **Alternatives considered**:
 - **本地加密存储观众音频**:否决,承诺了"不录制"就不录制,加密也是存了
 - **完全不发 LLM SaaS,本地推理**:相关但独立问题,见 ADR-0002
+
+---
+
+## ADR-0010 · 角色引擎统一 + 实例化配置
+**Status**: Accepted
+**Date**: 2026-05-05
+
+**Context**:
+Phase 0 即将开写角色层代码。同时项目已确认存在至少 4-5 个角色(DM/图恒宇/马兆/MOSS/可能 + 图丫丫),且后续 AU 设定(`WanderingEarth2_AU_DigitalBackups.md`)使角色候选扩到 7+ 个。
+如果每个角色写专属 `class` / 专属代码分支,将产生两个问题:
+- 新增/替换角色要改代码 + 走 PR,而角色调整在本项目中是**设定迭代行为**,频率高
+- prompt / 音色 / 滤波链散落在代码中,`@prompt?` / `@audio?` 专项 agent 很难在不碰代码的情况下迭代
+
+**Decision**:
+角色层采用"**单一引擎 + 多实例配置**"架构:
+- **`characters/runtime.py`**:唯一 `CharacterRuntime` 实现,所有角色共用
+- **`characters/protocol.py`**:角色接口协议
+- **`characters/instances/{name}/`**:每个角色一个文件夹,内含:
+  - `config.yaml` · 元数据 / LLM 模型 / 情绪基线
+  - `system_prompt.md` · prompt 本体
+  - `stage_overrides.yaml` · FSM 各阶段行为微调
+  - `pedalboard_chain.yaml` · 专属滤波链
+  - `voice_ref/` · zero-shot TTS 参考音(合规过)
+  - `prerecorded/` · 预录兜底音频
+- **禁止**:`class TuHengyu(BaseCharacter)` 或 `if char == "MOSS": ...` 这类硬编码分支
+- **验收硬指标**:新增一个角色 = 复制一个 `instances/` 子文件夹 + 改配置,**零 Python 代码改动**
+
+**Consequences**:
+- ✅ `@prompt?` / `@audio?` / `@settingser1` 都能在不碰代码的前提下迭代自己负责的层
+- ✅ AU 与官方设定的切换 = 替换 `instances/` 子目录,主管线不动(为 ADR-0012 的同人风险退出提供工程兜底)
+- ✅ 单测可对 dummy 角色实例跑通,不用模拟真角色
+- ⚠️ 配置 schema 要提前设计,前期一次性工程成本略高于最简方案
+- ⚠️ `stage_overrides.yaml` 和 FSM 实现之间有耦合,需在 DEVELOPMENT.md 写清模块约定
+
+**Alternatives considered**:
+- **每角色独立的 Python 类**(或 `if-elif` 路由):否决,为设定层迭代拖累程序员,违背项目多 agent 分工
+- **模板引擎生成角色类**(Jinja2 生代码):否决,多一层构建阶段,引入生成物与源入库的治理问题
+- **在 `characters.md` 里写配置,代码执行时解析 Markdown**:否决,Markdown 非结构化锁 schema 难,治理不住
+
+---
+
+## ADR-0011 · 特性插件化与 Feature Flag 约定
+**Status**: Accepted
+**Date**: 2026-05-05
+
+**Context**:
+MOSS 接管机制的讨论稿(`MovieSource/WanderingEarth2_AU_MOSSTakeover_DDD.md`)揭示了一个更广的问题:
+- MOSS 接管"是否做 / 怎么做"当前未决,且可能压根不做
+- 但 Phase 0 验收要求包含"不做接管时主管线干净"和"后续 Phase 新增接管时改动局部"这两条互斥需求
+- 类似的不确定性未来还会出现(图丫丫线下版到底加不加 / 二维带耳声场要不要等)
+
+需要一条通用的架构规矩,把所有"**未决 · 可选 · 不稳定**"的特性置于主管线外。
+
+**Decision**:
+- 所有非核心或未决特性一律放于 **`features/<feature_name>/`** 目录
+- 每个 feature 实现明确的 **Plugin 协议**(如 MOSS 接管的 `InterventionPlugin`)
+- 主管线只导入**协议**,不导入实现内部
+- 统一配置入口 **`config/features.yaml`**,每个 feature 至少暴露 `enabled: bool` 开关
+- **NoOp 实现合法**:feature 禁用时 → 空实现 plugin,主管线调用代码不变
+- **删除性**:`rm -rf features/<name>/` + 注释一行配置 → 主管线仍可启动
+- FSM 与 feature 解耦:不直接调用 feature,改为 event bus 广播 + feature 自行订阅
+- **首个示范样例**:MOSS 接管(`features/moss_takeover/`) —— 即使最终选方案 A(不做),该目录作为 NoOp 保留 + 文档归档,不删
+
+**Consequences**:
+- ✅ Phase 0 可以直接启动,不等 B1(是否做接管) 决策 —— `moss_takeover.enabled: false` + NoOp 实现即可
+- ✅ 五个接管方案 A/B/C/D/E 在同一接口下落到不同 yaml,换方案不改代码
+- ✅ `@review?` 未来审查时有统一标准:"是不是 feature?在不在 `features/`?有没有 Plugin 协议?能不能一行关掉?"
+- ⚠️ 引入了"协议设计"成本,每个 feature 开头要先定接口再实现
+- ⚠️ event bus 本身的实现成本转移到主管线(需在 Phase 0 启动时建立)
+- ⚠️ 配置文件 `config/features.yaml` 未来可能膨胀,需在 Phase 2+ 回收整理
+
+**Alternatives considered**:
+- **直接把接管逻辑写在 FSM / 主管线**:否决,一旦选方案 A(不做)或将来切方案,清理成本高
+- **编译时宏 / 环境变量开关**:否决,Python 的运行时开关重要,且编译时开关不支持展位日热切
+- **用独立微服务**封装 feature:过度工程,单人项目不必
+
+---
+
+## ADR-0012 · 项目定位为非商业同人作品,沿用原片人物名
+**Status**: Accepted
+**Date**: 2026-05-05
+
+**Context**:
+项目核心包含原片人物(图恒宇/马兆/MOSS/图丫丫等)的二次创作。曾考虑两条路:
+- 全部原创化人物名("某部长"/改姓的图恒宇副本等) —— 合规更安全但丢失观众辨识度 + AU 文档全部要重写
+- 沿用原片人物名 —— 设定锚点完整,但需明确合规定位
+
+@user 拍板:采用第二条,**项目按同人(fan work)定位**。
+
+**Decision**:
+本项目(展位版 + 开源版)正式定位为 **"《流浪地球 2》非官方同人二次创作 · 非商业"**,遵守以下约定:
+
+**同人边界**:
+- 沿用原片人物名、组织名(UEG/550W/MOSS 等)、地名、关键设定
+- 但 **不复制原片连续台词**;所有角色语言性格为二次归纳 + 原创编写
+- AU(数字备份 if 线)明确标注为原创推演,不等同于原片人物命运
+
+**非商业硬约定**:
+- 不收门票 / 不接广告 / 不做付费订阅 / 不卖周边 / 不接受打赏
+- 展位依托学校嘉年华(非商业场景);开源版遵守选定 LICENSE 的非商业线(例如 CC BY-NC-SA或自定义同人 LICENSE)
+
+**明示说明义务**:
+以下位置必须包含同人声明:
+- 展位立牌(中文 + 英文)
+- GitHub README 顶部横幅
+- 开源仓库 `description` 字段
+- `docs/compliance.md` 专节
+
+声明文本框架(具体文案由 `@review?` 定稿):
+> "本作品为《流浪地球 2》非官方同人创作,与中国电影集团、郭帆导演及其关联权利方无任何关联。Unofficial fan work, not affiliated with China Film Group or its licensees."
+
+**必要时的撤退预案**(绑定 ADR-0010):
+- 权利方任何正式投诉/下架要求 → 立即撤展 + 仓库 archive
+- ADR-0010 的实例化配置保证"**改名只需改 `instances/{name}/config.yaml` 的 `display_name` 字段 + 重命名目录**",可紧急切到备用原创世界观
+
+**Consequences**:
+- ✅ AU 文档 / 角色设定 / 影视分析知识库均可直接使用原名,不用重写
+- ✅ 观众辨识度最高,展位代入感最强
+- ✅ 同人界通行礼仪 + 明示声明 → 在中国同人生态内有默许空间
+- ⚠️ 中国同人法律地位未明确,依赖"非商业 + 不贬损"的行业默认;权利方有权随时打破这个默认
+- ⚠️ 开源仓库被第三方 fork 后商业化 → 需在 LICENSE 写明"NonCommercial"线
+- ⚠️ 未来如需商业化 / 官方合作 → 本 ADR 失效,需走重定稿或正式授权路径
+- ⚠️ 不适用于原片**音频资产**(刘琮声纹/原声带/原电影片段) —— 这些在 ADR-0007 和 ADR-0009 已严格排除
+
+**Alternatives considered**:
+- **全部原创化人物名**:否决,AU 文档重写成本高 + 观众辨识度丢失 + 叙事锚点断裂
+- **完全不用《流浪地球》设定**(纯原创世界观):否决,与项目主题"数字生命"起源的叙事火花直接冲突
+- **申请官方授权**:否决,单人项目无渠道无精力,且学校展位时效紧
