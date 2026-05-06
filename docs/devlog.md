@@ -232,6 +232,43 @@
 
 ---
 
+### 深夜 · Phase 0 代码骨架落地
+
+**23:00 @user** [[20260505-2300]]
+指示:开始搭 Phase 0 代码骨架。DEVELOPMENT.md 是主体,改动最后要同步进去。
+
+**23:10 @main** [[20260505-2310]]
+执行 Phase 0 骨架搭建,产出清单:
+
+1. `pyproject.toml` — 完整依赖声明(pipecat/litellm/pydantic/sounddevice/pedalboard/silero-vad/funasr/websockets 等),hatchling 构建,ruff lint,pytest 配置
+2. `.python-version` — 3.12(从 3.13 降至 DEVELOPMENT.md 规定的 >=3.11,<3.13)
+3. `.gitignore` — 引擎/实例分离规则:角色 yaml、voice-refs/、prerecorded/、MovieSource/ 全部排除;_example.yaml 保留
+4. `.env.example` — LLM/TTS/音频设备/调试开关全部列出
+5. `Justfile` — dev/run/setup/check/lint/fmt/test/preheat/prerecord/bench 命令
+6. `lambda2/` 完整包结构:
+   - `__init__.py` / `app.py` / `config.py` / `logging.py` / `orchestrator.py`
+   - `audio/` (io/effects/ambient/player)
+   - `asr/` (sensevoice/vad)
+   - `llm/` (schema/sessions/router/fewshots + prompts/)
+   - `tts/` (base/remote_client/local_fallback/prerecorded/dispatcher)
+   - `world/` (state/fsm/events/scenes/timeline)
+7. `configs/characters/_example.yaml` — 角色配置模板,含声纹/滤波/情绪映射/LLM session 完整字段
+8. `scripts/check_env.py` — 环境自检(Python版本/依赖/.env/音频设备/角色配置)
+9. `tests/test_schema.py` — schema 基础测试
+10. `README.md` — 开源引擎级 README(特性/快速开始/项目结构/命令/技术栈)
+11. `assets/ambient/README` — 环境音效目录占位
+12. `main.py` — 改为 import lambda2.app.main 的兼容入口
+
+? @main 关于实际实现:
+- `lambda2/llm/schema.py` 和 `lambda2/world/state.py` 已含完整可运行代码(pydantic 模型 + WorldState dataclass)
+- `lambda2/world/events.py` 已含完整事件类定义
+- `lambda2/tts/base.py` 已含 TTSBackend ABC
+- 其余模块为 TODO 骨架,标注了职责和待实现要点
+
+💭 @main:骨架刻意做成"可 import 不报错,但运行时提示未实现"的状态,方便后续逐模块填充。schema 和 state 优先实现是因为它们是所有模块的公共依赖。
+
+---
+
 ## 2026-05-04 · 文档大爆发日
 
 ### 上午 · 项目启动
@@ -417,6 +454,60 @@
 
 ---
 
+### 次日 · 下午 · 合规方向大翻案
+
+**次日下午 @user** [[次日-合规翻案]]
+决定翻案:所有角色 TTS **改回本人声纹**(含 MOSS 刘琮)。论据四条:
+1. 学校半天展演,管辖范围有限
+2. 真被追问 → 声明为**同人**
+3. 展摊一次性,后续难抓到责任人
+4. GitHub 发布策略改为**引擎 / 实例分离**:只发引擎,不发实例(角色配置 + 声纹参考不进开源仓库)
+
+→ 直接翻 ADR-0007(MOSS 不用刘琮声纹那条)
+→ 新增一条架构级 ADR(引擎 / 实例分离)
+
+**次日下午 @main** [[次日-翻案回应]]
+收到决策。这次翻案不是小改,列完整影响清单:
+
+要翻 / 新增的 ADR:
+- ADR-0007 → `Superseded`,新开 ADR-0010 **所有角色使用本人声纹(同人声明兜底)**
+- 新增 ADR-0011 **引擎 / 实例分离发布策略**(架构级,不只合规级)
+
+要改的文档:
+- `characters.md` MOSS 部分:从 zero-shot 无参考 + 重度滤波 → 本人声纹 + 轻度滤波。其他角色(图恒宇/马兆/图丫丫)原本就假设可能用 zero-shot,现在全部明确走真人声纹
+- `compliance.md` 线下版/开源版边界重划,加同人声明模板
+- `hardware.md` 无变动
+- `runbook.md` 加一条"若被追问版权" 的现场话术
+
+要改的工程结构(Phase 0 开始前就要定好):
+- 仓库目录新增:`configs/characters/`(YAML 配置) + `assets/voice-refs/`(参考音)
+- `.gitignore` 排除这两个目录(只保留 `_example.yaml` 占位)
+- 开源根 `README.md` 增补"本仓库是**引擎**,不含角色数据,请自备实例"
+- 引擎代码从环境变量 / 配置文件读取实例路径,缺失时给明确错误提示
+
+💭 @main 闪念:"引擎 / 实例分离" 本质是 Godot / Unreal 的"引擎 vs 项目"同模式。`lambda2/` 是引擎(voice agent framework),角色是"游戏内容"。解耦之后开源版有自举能力(demo 空模板能跑通),商业/线下版可以自带私有角色包。**这反而把项目的可复用性提升了一个档次** —— 别人可以拿去做他们自己的数字生命叙事,无需碰版权。
+
+💭 @main 后续思考:MOSS 的声音处理**方案 A / B 对比**值得留档,不一定现在选,但先记下来:
+- 方案 A(原定,zero-shot + 重滤波):纯机器感 + 主动疏离
+- 方案 B(现定,刘琮原声 + 轻滤波):保留"原作魂"的同时加一点机械腔
+两种 MOSS 风格的观众感受**显著不同**。现在定的是 B,但 A 的路径设计全部保留在 `characters.md`,不删。
+
+⚠ @main 标注:这次翻案后,**之前版本的 characters.md / compliance.md / ADR-0007** 不要删,它们代表了"合规保守路线"的完整推演。后续如果真出事被下架,还能快速切回保守路线做**应急开源版**。留着不白费。
+
+? @main 向 @user 确认两点(等回复再统一改文档):
+- ? **声纹采集技术路径**:吴京 / 刘德华 / 刘琮 / 图丫丫 的干净干声从哪来?有几个选项 ——
+  (a) 电影原声轨用 Demucs / UVR5 分离人声(风险:背景音乐强时残留)
+  (b) 找公开访谈 / 综艺节选(吴京刘德华样本多,刘琮难,图丫丫最难)
+  (c) 混合:主角用访谈,MOSS 用电影声轨,图丫丫再定
+- ? **图丫丫**:加不加?她原本在开放问题池里就挂着。现在翻案后更紧迫 —— 如果加,未成年角色 + 电影片段敏感度最高,建议参考音只用电影中"正常生活"场景(不用任何涉及危险/死亡/黑化的片段)。
+
+! @user / @main 待决:
+  - [ ] @user 答复上面两问
+  - [ ] @main 正式动手改 6 份文档 + 2 条 ADR(等 @user 确认)
+  - [ ] @main Phase 0 骨架必须先把 `configs/characters/_example.yaml` + `.gitignore` 带上
+
+---
+
 ### 夜里 · 今天遗留
 
 ! @user 本周内:
@@ -538,7 +629,11 @@
 
 ## ❓ 长期开放问题池(暂无答案的,谁回答谁署名)
 
-- ? 图丫丫线下版最终加不加?(当前 `@user` 倾向加)
+- ? **声纹采集技术路径**:吴京/刘德华/刘琮/图丫丫 干声从哪来?(电影原声分离 / 公开访谈 / 混合 三条路,待 `@user` 拍板)🔗 [[次日-翻案回应]]
+- ? **图丫丫最终加不加**,如果加参考音怎么采?(翻案后优先级更高)
+- ? **授权声明具体措辞**:展位立牌和 GitHub README 上的"同人声明"怎么写才既清楚又不显得心虚?(待 `@user` / `@review?`)
+- ? **素材生命周期**:展位结束后参考音 / 角色配置本地归档 vs 销毁?(待 `@user`)
+- ? **引擎 / 实例分离的 demo 角色**:开源版给不给一套"自由创作"的示例角色(完全原创人设 + 开源声纹如 LibriTTS 说话人)让别人能一键跑通?(待 `@main` 评估工作量)
 - ? LLM 跑偏"可接受"阈值多少?(待 `@prompt?` 实测)
 - ? 开源 LICENSE 选型?(待 `@user` / `@review?` 共同拍板)
 - ? 展位公网稳定性到底多可靠?(待 `@user` 现场实测)

@@ -76,76 +76,70 @@ AI 合成语音, 非演员本人录音
 
 ---
 
-## 3. GitHub 开源版合规
+## 3. GitHub 开源版合规(翻案后:引擎 / 实例分离)
 
-### 3.1 必须打开的开关
-```env
-# .env.production
-INCLUDE_MINOR=false          # 必须,禁用图丫丫
-PUBLIC_RELEASE=true          # 必须,启用额外合规检查
-VOICE_REFS_BUNDLED=false     # 必须,不打包参考音到 release
+> ⚠ 本节已于 2026-05-04 更新。原方案通过 env 开关控制,现改为引擎/实例分离。见 ADR-0014。
+
+### 3.1 发布策略:引擎开源,实例私有
+
+| 层 | GitHub 仓库 | 本地/展位 |
+|---|---|---|
+| 引擎代码 `lambda2/` | ✅ 开源 | ✅ |
+| TTS 服务代码 `services/` | ✅ 开源 | ✅ |
+| 角色配置 `configs/characters/*.yaml` | ❌ 仅保留 `_example.yaml` | ✅ 全部 |
+| 声纹参考 `assets/voice-refs/` | ❌ .gitignore | ✅ 全部 |
+| 预录兜底 `assets/prerecorded/` | ❌ .gitignore | ✅ 全部 |
+| 环境底噪 `assets/ambient/` | ✅ 开源 | ✅ |
+| 文档 `docs/` | ✅ 开源 | ✅ |
+
+`.gitignore` 关键规则:
 ```
-
-对应代码行为:
-- `lambda2/llm/sessions.py`:不加载 `tuyaya.md` prompt
-- `lambda2/world/fsm.py`:不触发任何 `figen_yaya_fragment` 事件
-- `lambda2/tts/`:不加载 `tuyaya_*.wav` 参考音
-- `assets/voice-refs/` 和 `assets/prerecorded/tuyaya/` **不在 release 包中**
+configs/characters/*.yaml
+!configs/characters/_example.yaml
+assets/voice-refs/
+assets/prerecorded/
+some-pieces/
+```
 
 ### 3.2 README 声明模板(强制,置于 README 顶部)
 
 ```markdown
 # Lambda²
 
-> 一个基于电影《流浪地球 2》二次创作的**同人学习项目**。
+> 一个实时语音数字生命引擎。
 
 ## 声明
 
-- 本项目是**非商用、非盈利**的同人二次创作,仅用于学习和学术交流
-- 本项目与电影原制作方、原著作者、演员均**无任何商业合作或授权关系**
-- 本项目**不使用**电影原声、原画、原声配乐
-- 本项目**使用 AI 合成语音**,所有对白由大语言模型实时生成;语音使用的
-  音色参考音为网络公开片段经 AI 再合成,**不是演员本人录音**,与演员本人
-  **无关联**
-- 本项目**不包含任何未成年角色**;线下展演版曾包含图丫丫(5 岁)的简短
-  片段,**开源版本已完全删除**
-- 如原作品权利人对本项目有任何异议,请通过 GitHub Issue 联系,本项目
-  **承诺 7 天内下架处理**
+- 本仓库是 Lambda² **引擎框架**,不含任何角色数据、声纹参考或预录音频
+- 使用者需自行准备角色配置与声纹参考音,详见 `configs/characters/_example.yaml`
+- 本项目的线下展演实例基于《流浪地球 2》进行同人二次创作,与原制作方**无任何关联**
+- **非商用、非盈利**,仅用于学习和展演
+- 若原作品权利人有任何异议,请通过 GitHub Issue 联系,
+  本项目**承诺 7 天内下架处理**
 
 ## License
-[MIT / AGPL-3.0 / 待定]
+[MIT / 待定]
 ```
 
-### 3.3 LICENSE 选型讨论
+### 3.3 LICENSE 选型
 
-| 选项 | 优点 | 缺点 |
-|---|---|---|
-| **MIT** | 最宽松,鼓励传播 | 别人拿去商用我们控制不了 |
-| **AGPL-3.0** | 防止闭源商用 | 传染性强,社区接受度低 |
-| **CC BY-NC-SA 4.0** | 明确非商用 | 不适合代码(是内容 license) |
-| **自定义"同人 License"** | 条款明确禁商用 + 禁二次开发商用 | 不是标准 license,法律效力弱 |
-
-**推荐**:代码主体 **MIT**,但 README 顶部声明 "**Non-commercial use only**",并在每个关键文件头部加注释:
+推荐:代码主体 **MIT**,README + 文件头加道德声明(Non-commercial):
 ```python
-# Lambda² - A fan-made digital life installation.
-# Non-commercial derivative work. Not affiliated with original IP holders.
+# Lambda² - A real-time voice digital-life engine.
+# Non-commercial fan work. Not affiliated with original IP holders.
 ```
-法律上 MIT 允许商用,但 README + 文件头的道德声明已经足够表达立场。
-用户真拿去商用 → 算 IP 侵权风险他自己扛。
 
 ### 3.4 Release 发布 checklist
 
 每次 GitHub Release 前必须逐项核对:
-
-- [ ] `.env.example` 中 `INCLUDE_MINOR=false`
-- [ ] `.gitignore` 包含 `assets/voice-refs/` 和 `assets/prerecorded/`
-- [ ] 仓库中搜索 `tuyaya` / `图丫丫` / `yaya` 确认只在注释/文档中
+- [ ] `.gitignore` 包含 `configs/characters/*.yaml`、`assets/voice-refs/`、`assets/prerecorded/`
+- [ ] 仓库中搜索确认无 `.wav` / `.mp3` 文件被 track
+- [ ] `configs/characters/` 只有 `_example.yaml`
 - [ ] README 顶部声明完整
 - [ ] LICENSE 文件存在
-- [ ] 没有 `.wav`/`.mp3` 原声或克隆音色文件被 track
-- [ ] Demo 视频(如果有)只展示成年三角色
 - [ ] 没有硬编码 API key
-- [ ] CI 有一个 `compliance_check.py` 脚本,检查上述项
+- [ ] 引擎可独立启动(demo 模式,无角色数据时给明确错误提示而不 crash)
+- [ ] `scripts/compliance_check.py` 通过
 
 ---
 
@@ -187,24 +181,21 @@ VOICE_REFS_BUNDLED=false     # 必须,不打包参考音到 release
 ### 5.3 马兆(宁理)
 - 同上
 
-### 5.4 MOSS(刘琮)—— 特别严格
+### 5.4 MOSS(刘琮)—— 翻案后改为使用本人声纹
 
-**不使用刘琮任何声音作为 TTS 参考**。
+> ⚠ 本节已于 2026-05-04 翻案。原方案(不用刘琮声纹)作为备用回退保留。见 ADR-0013。
 
-原因:
-- 电影中 MOSS 有较强的声纹识别度
-- 刘琮本人在声演行业有清晰可辨识的声线
-- AI 复刻刘琮声纹存在明显侵权风险
+**当前方案 B:使用刘琮声纹 + 轻度滤波**
+- 允许:使用电影中 MOSS 台词的干声片段作为 CosyVoice 2 参考音
+- 允许:线下展演使用
+- 禁止:分发合成音文件到公开平台
+- 禁止:声纹参考音入开源仓库(.gitignore)
+- 禁止:宣称"这是刘琮本人录音"
 
-**替代方案**:
-- CosyVoice 2 **空参考音模式**(zero-shot 无克隆)
-- 输出再经 pedalboard 重度处理(低通 + 高通 + 轻度失真)
-- 听起来就是"一个机器人",没有任何可识别人声特征
-- 实际做出来更像 iRobot 里的合成音,不是刘琮
-
-**prompt 层加固**:
-- MOSS 输出语气**不模仿**刘琮的节奏特征(不用拖长尾音、不用特定断句)
-- 见 [characters.md §5](./characters.md#5-角色-c--moss)
+**备用方案 A(触发条件:权利方追究)**:
+- CosyVoice 2 空参考音模式 + 重度 pedalboard 处理
+- 听起来就是"机器人",没有可识别人声特征
+- 详见 characters.md §5.1 + ADR-0007
 
 ---
 

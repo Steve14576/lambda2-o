@@ -37,12 +37,14 @@
 | 0004 | 硬件 = USB 有线带麦头戴耳机 × 1 位,弃座机弃蓝牙 | Accepted |
 | 0005 | LLM 采用 4 个独立 session 架构 | Accepted |
 | 0006 | 主进程 + ASR + VAD 必须在展位笔记本本地 | Accepted |
-| 0007 | MOSS 不使用刘琮声纹,纯电子合成 | Accepted |
+| 0007 | MOSS 不使用刘琮声纹,纯电子合成 | **Superseded by ADR-0013** |
 | 0008 | 本地用 uv 管依赖,远程服务用 Docker Compose | Accepted |
 | 0009 | 观众语音不录制、不存储、不上传 | Accepted |
 | 0010 | 角色引擎统一 + 实例化配置 | Accepted |
 | 0011 | 特性插件化与 Feature Flag 约定 | Accepted |
 | 0012 | 项目定位为非商业同人作品,沿用原片人物名 | Accepted |
+| 0013 | 所有角色使用本人声纹 TTS + 同人声明兜底 | Accepted (Supersedes 0007) |
+| 0014 | 开源发布采用引擎 / 实例分离策略 | Accepted |
 
 ---
 
@@ -232,7 +234,7 @@
 ---
 
 ## ADR-0007 · MOSS 不使用刘琮声纹,纯电子合成
-**Status**: Accepted
+**Status**: **Superseded by ADR-0013** (2026-05-04)
 **Date**: 项目初期
 
 **Context**:
@@ -332,17 +334,13 @@ Phase 0 即将开写角色层代码。同时项目已确认存在至少 4-5 个�
 
 **Decision**:
 角色层采用"**单一引擎 + 多实例配置**"架构:
-- **`characters/runtime.py`**:唯一 `CharacterRuntime` 实现,所有角色共用
-- **`characters/protocol.py`**:角色接口协议
-- **`characters/instances/{name}/`**:每个角色一个文件夹,内含:
-  - `config.yaml` · 元数据 / LLM 模型 / 情绪基线
-  - `system_prompt.md` · prompt 本体
-  - `stage_overrides.yaml` · FSM 各阶段行为微调
-  - `pedalboard_chain.yaml` · 专属滤波链
-  - `voice_ref/` · zero-shot TTS 参考音(合规过)
-  - `prerecorded/` · 预录兜底音频
-- **禁止**:`class TuHengyu(BaseCharacter)` 或 `if char == "MOSS": ...` 这类硬编码分支
-- **验收硬指标**:新增一个角色 = 复制一个 `instances/` 子文件夹 + 改配置,**零 Python 代码改动**
+- **单一引擎实现**:所有角色共用同一套运行时代码,实现一次
+- **每角色一个实例包**:每个角色对应一个独立的声明式配置包,包含该角色所需的全部参数(元数据、prompt 文本、阶段行为、音频相关设定、兜底资源等)
+- **引擎按名加载实例包**:引擎在启动或切换时按角色名加载对应实例包
+- **禁止**:为任何具体角色编写专属代码分支或专属类
+- **验收硬指标**:新增 / 替换一个角色 = 新增或替换一个实例包,**不改动引擎代码**
+
+本 ADR **只定架构原则**。具体实例包 schema、目录命名约定、引擎技术栈选型(运行时语言、配置格式、加载机制等) → 留给 `docs/DEVELOPMENT.md` 在 Phase 0 启动时细化。 Python 代码改动**
 
 **Consequences**:
 - ✅ `@prompt?` / `@audio?` / `@settingser1` 都能在不碰代码的前提下迭代自己负责的层
@@ -439,9 +437,101 @@ MOSS 接管机制的讨论稿(`MovieSource/WanderingEarth2_AU_MOSSTakeover_DDD.m
 - ⚠️ 中国同人法律地位未明确,依赖"非商业 + 不贬损"的行业默认;权利方有权随时打破这个默认
 - ⚠️ 开源仓库被第三方 fork 后商业化 → 需在 LICENSE 写明"NonCommercial"线
 - ⚠️ 未来如需商业化 / 官方合作 → 本 ADR 失效,需走重定稿或正式授权路径
-- ⚠️ 不适用于原片**音频资产**(刘琮声纹/原声带/原电影片段) —— 这些在 ADR-0007 和 ADR-0009 已严格排除
+- ⚠️ 音频资产(声纹参考/角色配置/预录音频)通过「引擎/实例分离」策略处理 —— 引擎开源,声纹素材私有不入仓,见 ADR-0013 / ADR-0014
 
 **Alternatives considered**:
 - **全部原创化人物名**:否决,AU 文档重写成本高 + 观众辨识度丢失 + 叙事锚点断裂
 - **完全不用《流浪地球》设定**(纯原创世界观):否决,与项目主题"数字生命"起源的叙事火花直接冲突
 - **申请官方授权**:否决,单人项目无渠道无精力,且学校展位时效紧
+
+---
+
+## ADR-0013 · 所有角色使用本人声纹 TTS + 同人声明兜底
+**Status**: Accepted
+**Date**: 2026-05-04
+**Supersedes**: ADR-0007
+
+**Context**:
+ADR-0007 出于极度谨慎,定了 MOSS 不用刘琮声纹。但实际评估后发现:
+- 学校嘉年华半天展演,管辖范围极其有限
+- 同人创作在中国 ACG / 影视生态内有广泛默许空间(特别是非商用非分发)
+- 展摊一次性,后续追责极不现实
+- 开源版通过"引擎 / 实例分离"(ADR-0014)可以从根本上解决公开仓库含原演员声纹的问题
+- MOSS 如果用刘琮真声加轻度滤波,观众体验远超纯电子音(“那个 MOSS”的感觉)
+
+**Decision**:
+- **所有角色**的 TTS 均使用对应演员本人声纹作为 CosyVoice 2 参考音:
+  - 图恒宇 = 吴京
+  - 马兆 = 宁理
+  - MOSS = 刘琮
+  - 图丫丫 = 电影原角色演员
+- MOSS 额外加 pedalboard 轻度滤波:LowpassFilter(4000Hz) + HighpassFilter(200Hz) + Distortion(3dB)
+- 同人声明兜底:
+  - 展位立牌标注"同人非商用"
+  - 若被追问 → 口头声明 + 展示免费入场证据
+- **声纹参考音不入开源仓库**(ADR-0014 执行)
+- **备用方案 A**(纯电子音,不用原演员声纹)保留在 characters.md + ADR-0007,随时可切回
+
+**Consequences**:
+- ✅ 观众体验大幅提升("真的是图恒宇在说话")
+- ✅ MOSS 保留人声底子 + 机械腔,比纯电子音更有识别度
+- ✅ 引擎/实例分离 + 同人声明双保险
+- ⚠️ 同人声明不是法律护盾,权利方追究时仍需执行应急回退(ADR-0007 保留的方案 A)
+- ⚠️ 声纹采集需要额外工作量(UVR5 / Demucs 分离)
+- ⚠️ 图丫丫(未成年角色)满度最高,参考音只用"正常生活"场景片段
+
+**Alternatives considered**:
+- **维持 ADR-0007**(不用刘琮声纹):否决,体验损失远大于风险收益,且引擎/实例分离已解决开源合规
+- **只 MOSS 用刘琮,其他不用原演员**:否决,既然已定同人 + 引擎分离,没理由只到 MOSS
+
+---
+
+## ADR-0014 · 开源发布采用引擎 / 实例分离策略
+**Status**: Accepted
+**Date**: 2026-05-04
+
+**Context**:
+ADR-0013 决定线下版使用原演员声纹,但 GitHub 开源仓库不能含这些素材。
+同时 ADR-0010 已经定了「单一引擎 + 多实例配置」的架构,这为发布分离提供了工程基础。
+需要一条明确的发布策略:哪些文件开源、哪些私有、如何确保引擎可独立运行。
+
+**Decision**:
+GitHub 仓库作为**引擎框架**发布,线下展演作为「引擎 + 流浪地球 2 实例」的一个具体部署。
+
+开源(入仓):
+- `lambda2/`：全部引擎代码
+- `services/`：TTS 服务端代码
+- `docs/`：文档(不含原始声纹文件)
+- `assets/ambient/`：环境底噪(原创生成)
+- `configs/characters/_example.yaml`：模板文件
+- `scripts/`：工具脚本
+- `tests/`：单测
+
+私有(`.gitignore`):
+- `configs/characters/*.yaml`(除 `_example.yaml`)
+- `assets/voice-refs/`(全部)
+- `assets/prerecorded/`(全部)
+- `some-pieces/`
+
+引擎自举能力:
+- 开源版必须能独立启动(demo 模式)
+- 缺失角色配置时给明确错误提示,不 crash
+- `_example.yaml` + 空响应回路让别人能理解架构并自行创建角色
+
+README 必须包含:
+- "本仓库是 Lambda² 引擎框架,不含角色数据"
+- "使用者需自行准备声纹参考与角色配置"
+- 同人声明
+
+**Consequences**:
+- ✅ 开源仓库完全不含任何原演员声纹,合规开绿灯
+- ✅ 别人可以 fork 后做自己的数字生命叙事(任何 IP)
+- ✅ 被下架只需删本地素材,引擎仓库不受影响
+- ✅ 项目可复用性大幅提升(从"同人项目" → "通用 voice agent 框架")
+- ⚠️ 新用户需要自备声纹 + 配置,门槛略高
+- ⚠️ `_example.yaml` 和文档要足够清晰,否则别人不知道怎么上手
+
+**Alternatives considered**:
+- **开源版内置一套“安全原创角色”**(LibriTTS 声源 + 原创人设):未排除,但工作量大,待引擎稳定后再评估
+- **双仓库**(engine repo + instance repo,后者 private):否决,单人维护两个 repo 没必要,.gitignore 已够用
+- **用 git-crypt 加密私有文件**:否决,增加复杂度且不透明,不如简单 .gitignore

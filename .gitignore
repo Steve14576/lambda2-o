@@ -1,0 +1,48 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.venv/
+.eggs/
+
+# ===== 环境 =====
+.env
+.env.local
+*.log
+
+# ===== IDE =====
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== uv =====
+uv.lock
+
+# ============================================================
+# 引擎/实例分离 — 以下为"实例"数据,不入开源仓库 (ADR-0014)
+# ============================================================
+
+# 角色配置(含声纹路径、人设 prompt 等隐私数据)
+configs/characters/*.yaml
+!configs/characters/_example.yaml
+
+# 声纹参考音(演员干声,版权敏感)
+assets/voice-refs/
+
+# 预录兜底音频(含演员声纹)
+assets/prerecorded/
+
+# 历史讨论片段
+some-pieces/
+
+# 电影素材源
+MovieSource/

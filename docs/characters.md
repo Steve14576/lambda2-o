@@ -319,11 +319,17 @@ numb 是在 COLLAPSING 期的常态。
 - 电影中 550W 自带的 AI 守护者
 - 高等级计算意识,**无感情、只有判定**
 - **在本项目里的特殊定位**:既是"世界规则的宣读者"也是"观察者"
-- **合规处理**:
-  - **不使用刘琮原声**
-  - **不使用模仿刘琮声纹的 AI 仿声**
-  - 使用**纯电子合成音**(CosyVoice 2 不给参考音,用基础合成音 + 重度滤波)
-  - text 避免明显的刘琮语气特征
+- **声纹方案**(翻案后,见 ADR-0013):
+  - **方案 B(当前执行)**:
+    - 使用**刘琮本人声纹**作为 CosyVoice 2 参考音
+    - + pedalboard 轻度滤波:LowpassFilter(4000Hz) + HighpassFilter(200Hz) + Distortion(3dB)
+    - 效果:保留"人声底子下的机械腔",观众能认出"那个 MOSS"但又带电子感
+  - **方案 A(备用回退,原 ADR-0007)**:
+    - **不使用**刘琮任何音频作为参考音
+    - CosyVoice 2 zero-shot 无参考音模式 + 重度滤波:LowpassFilter(3000Hz) + HighpassFilter(200Hz) + Distortion(8dB) + 50Hz 嗡鸣
+    - 效果:纯电子音,无人声辨识度
+    - 触发条件:权利方投诉 / 下架要求 → 立即切换
+  - text 避免明显的刘琮语气特征(两套方案共同约束)
 
 ### 5.2 语言风格
 - **极简、结构化**
@@ -570,15 +576,29 @@ numb 是在 COLLAPSING 期的常态。
 5. 命名:`{character}_{emotion}_{idx}.wav`
 6. 存 `assets/voice-refs/`(.gitignore,**不入仓库**)
 
-### 8.3 MOSS 特殊
+### 8.3 MOSS 特殊(翻案后:双方案保留)
+
+> 当前执行**方案 B**。如需切回方案 A,参见 ADR-0007。
+
+**方案 B(当前):刘琮声纹 + 轻度滤波**
+- 参考音:电影中 MOSS 冷调旁白片段,Demucs 分离人声
+- 2 段 × 10s(冷调 / 警示)
+- 合成后经过:
+  - `pedalboard.LowpassFilter(cutoff_frequency_hz=4000)`
+  - `pedalboard.HighpassFilter(cutoff_frequency_hz=200)`
+  - `pedalboard.Distortion(drive_db=3)` 轻度失真
+- 效果:保留刘琮人声底子,叠加一层机械腔
+
+**方案 A(备用回退):纯电子音,不用刘琮声纹**
 - **不用**刘琮任何声音作为参考音
 - 使用 CosyVoice 2 无参考音模式(zero-shot 空参考)
 - 合成后经过:
   - `pedalboard.LowpassFilter(cutoff_frequency_hz=3000)`
   - `pedalboard.HighpassFilter(cutoff_frequency_hz=200)`
-  - `pedalboard.Distortion(drive_db=8)` 轻度失真
+  - `pedalboard.Distortion(drive_db=8)` 重度失真
   - 偶发叠加 50Hz 电流嗡鸣
-- 目的:听起来就是"机器人",没有具体人声辨识度
+- 效果:听起来就是"机器人",没有具体人声辨识度
+- 触发条件:权利方投诉 / 下架要求 → 立即切换
 
 ### 8.4 图丫丫特殊(线下版)
 - 只采集原电影童音 2-3 秒

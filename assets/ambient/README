@@ -1,0 +1,8 @@
+# 环境音效资源
+# 此目录存放开源环境底噪 WAV 文件
+# - server_hum_loop.wav  机房嗡鸣循环
+# - electric_crackle.wav 电流噼啪
+# - water_flow.wav       水流声
+#
+# 格式: 24kHz, mono, WAV
+# TODO: 录制/生成实际音效文件

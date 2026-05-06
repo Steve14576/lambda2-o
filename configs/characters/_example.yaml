@@ -1,0 +1,61 @@
+# Lambda² 角色配置模板
+# 复制此文件并重命名为 <character_id>.yaml
+# 实际角色配置含版权敏感数据,不入 git 仓库
+#
+# 字段说明见 DEVELOPMENT.md §9
+
+character_id: example_character
+display_name: "示例角色"
+
+# 声纹参考音
+voice:
+  # 参考音文件路径 (相对于项目根目录)
+  reference_wavs:
+    - assets/voice-refs/example/neutral_01.wav
+    - assets/voice-refs/example/neutral_02.wav
+    - assets/voice-refs/example/emotional_01.wav
+  # 音频规格
+  spec:
+    sample_rate: 24000
+    channels: 1
+    format: wav
+    duration_range: [8, 12]  # 秒
+
+# 音色后处理滤波 (pedalboard 参数)
+voice_effects:
+  lowpass_cutoff_hz: 20000   # 不滤波 = 原声
+  highpass_cutoff_hz: 0      # 不滤波
+  distortion_db: 0           # 不失真
+  custom_effects: []         # 额外效果链
+
+# 情绪基线映射 (emotion → TTS 参数微调)
+emotion_map:
+  calm:
+    speed: 1.0
+    pitch_shift: 0
+  uneasy:
+    speed: 1.05
+    pitch_shift: 0
+  grief:
+    speed: 0.9
+    pitch_shift: -1
+  rage:
+    speed: 1.2
+    pitch_shift: 2
+  numb:
+    speed: 0.85
+    pitch_shift: -2
+  mechanical:
+    speed: 1.0
+    pitch_shift: 0
+
+# LLM session 配置
+llm:
+  system_prompt_file: lambda2/llm/prompts/example.md  # 系统提示词路径
+  few_shots: 3           # few-shot 示例数
+  max_context_turns: 10  # 上下文窗口
+
+# 角色在世界中的初始状态
+world:
+  initial_position: "server_room"
+  initial_emotion: "calm"
