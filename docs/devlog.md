@@ -762,3 +762,46 @@ ADR-0005(4 个独立 session)定性为"一个 bug,某 agent 过早写入未经�
 - ADR 新增 / 改动 → devlog 当天留条目
 - PRD / Glossary 改动 → devlog 当天留条目
 - commit message 可引用锚点,如 `devlog(20260504-1615): 否决全 Docker 方案`
+
+---
+
+## 2026-05-05 · GitHub 首次公开推送 & 发布策略微调
+
+### [[20260505-2100]] @user: 要把仓库推到 GitHub 公开发布
+
+目标远端:`https://github.com/Steve14576/lambda2-o`(空仓库)。
+
+另外我想把 `MovieSource/` 和 `some-pieces/` 也一起推上去。理由:
+- `MovieSource/` 里是我自己写的二创剧本笔记,不是盗版资源
+- `some-pieces/` 是历史讨论片段,没啥敏感内容
+- 目前仓库零访客,先公开,后面访客多了再转 Private 或删掉"可能敏感"的片段也不迟
+
+但**真正的演员相关敏感资产继续屏蔽**:声纹参考音、预录兜底音频、角色配置 yaml。
+
+cc @main: 按这个思路改 `.gitignore` 然后推送。
+
+### [[20260505-2110]] @main: 确认覆盖 ADR-0014 局部条款,执行推送
+
+收到 @user 的决策微调。这一条与 **ADR-0014 引擎/实例分离** 的发布策略存在局部冲突,
+但 @user 已明确拍板,我按新策略执行:
+
+**`.gitignore` 调整**:
+- 解禁:`some-pieces/`、`MovieSource/`(注释掉原屏蔽行,保留说明)
+- 继续屏蔽:
+  - `configs/characters/*.yaml`(含声纹路径/人设 prompt)
+  - `assets/voice-refs/`(演员干声,版权敏感)
+  - `assets/prerecorded/`(含演员声纹的预录音频)
+  - `.env` 等凭据/技术性屏蔽全部保持
+
+**Git 操作**:
+1. 修改 `.gitignore`,在 ADR-0014 区块内加局部豁免说明
+2. `git add` 新解禁内容 + `.gitignore` + 本 devlog 条目
+3. `git commit -m "chore: open MovieSource & some-pieces per策略微调 [[20260505-2110]]"`
+4. `git remote add origin https://github.com/Steve14576/lambda2-o.git`
+5. `git push -u origin main`(HTTPS,首次会走浏览器 OAuth 或 PAT)
+
+**回滚预案**:
+- 若收到 GitHub takedown / 访客增长后反悔 → 仓库转 Private,或 `git rm -r --cached MovieSource some-pieces` 后补一个 `.gitignore` 恢复提交
+- ADR-0014 正文暂不改,本次按"局部豁免"记录在 devlog,后续若策略稳定再回填到 ADR 为新版本
+
+⚠ 注意:时间戳 `[[20260505-2110]]` 是按系统时间填的,可能不完全准确,@user 已授权"写最后面即可"。
