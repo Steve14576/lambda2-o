@@ -29,7 +29,14 @@ class ActionIntent(BaseModel):
 
 
 class LLMOutput(BaseModel):
-    """所有角色 + DM 的统一输出结构."""
+    """LLM 统一输出结构。
+
+    TODO(ADR-0016): 单主体模式确认后,此 schema 需重构:
+    - speaker 字段可能不再需要(单主体没有多 speaker 路由)
+    - route_to 字段可能废正(DM 不再通过此字段调度)
+    - DM 软层和主体的输出可能分层("say" vs "do")
+    待 Phase 1 接口设计完成后更新。
+    """
 
     speaker: Literal["dm", "tuhengyu", "matu", "moss"]
     text: str = Field(min_length=0, max_length=120, default="")

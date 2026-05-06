@@ -70,9 +70,11 @@
 │                ├── VAD (silero-vad)  ← 打断检测                                │
 │                └── Orchestrator                                                │
 │                     ├── WorldState (内存)                                      │
-│                     ├── FSM (状态机: 2 分钟轮回)                                │
-│                     └── Router                                                 │
-│                          ↓ 路由到 {dm, 图恒宇, 马兆, MOSS}                      │
+│                     ├── FSM (状态机: 轮回计时, 上限 3.5min)                       │
+│                     └── WorldEngine                                             │
+│                          ├── 硬层: FSM / timeline / 计时 / 物理规则          │
+│                          └── 软层: DM (叙事驱动 / 场景调度)                │
+│                               ↓ 路由到当前场景的单一主体                   │
 └──────────────┬──────────────────────────────────────────────┬─────────────────┘
                │                                              │
          ┌─────▼──────────┐                          ┌────────▼──────────┐
@@ -81,10 +83,15 @@
          │                │                          │ (Docker + FastAPI) │
          │ qwen-max /     │                          │                    │
          │ doubao-pro     │                          │ WebSocket 流式 PCM │
-         │                │                          │ 多角色并发          │
-         │ 4 独立 session │                          │                    │
+         │                │                          │                    │
+         │ 单主体 session  │  ← ADR-0016 确定          │                    │
          └────────────────┘                          └────────────────────┘
 ```
+
+> **架构核心**(ADR-0016):每个 cycle 只有一个数字生命主体接 LLM。
+> DM 是世界引擎软层(叙事驱动),FSM/timeline 是硬层。
+> 其他角色环境化(写死在 prompt / 预录音频 / 记忆片段)。
+> DM 与主体的接口设计待 Phase 1 落地。
 
 ### 2.2 数据流(一轮体验)
 
@@ -170,7 +177,7 @@ PCM 流 → AudioEffects (pedalboard 按 emotion/scene 加滤波/混响)
   - 启动 Pipecat 管线
   - 加载 WorldState + FSM
   - 管理 LLM session、TTS client、ASR stream 的生命周期
-  - 信号处理(Ctrl+C 优雅退出、2 分钟轮回 reset)
+  - 信号处理(Ctrl+C 优雅退出、轮回到时 reset,硬上限 3.5min)
 - 配置:`.env` + `config.py` 热读取
 - 日志:structlog,带 `run_id` + `cycle_id`(每轮回一个)
 
@@ -181,17 +188,24 @@ PCM 流 → AudioEffects (pedalboard 按 emotion/scene 加滤波/混响)
 - VAD 判定"说话结束" → 触发 ASR 最终文本提交
 - **绝对不能上远程**,barge-in 要求 <20ms
 
-### 4.3 LLM 多实例 (`lambda2/llm/`)
-- 4 个 `ChatSession` 对象,各自维护独立 `messages` 列表
+### 4.3 LLM 单主体 + 世界引擎 (`lambda2/llm/`)
+
+> **ADR-0016 已确认**:4 session 并行方案(ADR-0005)已废止,改为单主体模式。
+
+**架构原则**:
+- 每个 cycle 只有 **1 个数字生命主体** 接 LLM(谁是主体由场景决定)
+- **DM = 世界引擎软层**,负责叙事驱动 / 场景调度 / 世界状态演进
+- 其他角色 = 环境的一部分,写死在主体的 prompt / 预录音频 / 记忆片段中
 - 使用 `LiteLLM.acompletion`,model 通过 env 切换
-- 统一系统提示词放 `lambda2/llm/prompts/*.md`
 - 所有输出强制 JSON(`response_format={"type": "json_object"}`)
-- 每个 session 带 few-shot 示例(2-3 条)锁定格式
-- **Router 规则**:
-  - 默认路由到 DM 做判定
-  - DM 输出 `route_to` 字段,指定下一轮哪个角色开口
-  - 特殊场景(如"图恒宇在场发问")直接路由对应角色
-- **上下文窗口**:每 session 保留最近 10 轮,防止 token 爆炸
+- **上下文窗口**:保留最近 10 轮,防止 token 爆炸
+
+**实现层待设计**(Phase 1 解决):
+- DM 如何与主体 LLM session 协作?(串行调用 / 嵌套 prompt / 分层输出)
+- 结构化输出怎么分"说什么"vs"做什么"?
+- DM 对硬层(FSM/timeline)的调用接口?
+- 世界反馈如何回传给主体?
+- 不同场景切换主体的机制?
 
 ### 4.4 TTS 服务
 
@@ -230,11 +244,13 @@ PCM 流 → AudioEffects (pedalboard 按 emotion/scene 加滤波/混响)
 ```python
 class Stage(Enum):
     IDLE = "idle"           # 待机,黑屏无声
-    AWAKENING = "awakening" # 0-40s 平稳
-    DISSOLVING = "dissolving" # 40-90s 侵蚀
-    COLLAPSING = "collapsing" # 90-115s 崩坏
-    RESET = "reset"         # 115-120s 强制重置
+    AWAKENING = "awakening" # 0-60s 平稳
+    DISSOLVING = "dissolving" # 60-135s 侵蚀
+    COLLAPSING = "collapsing" # 135-170s 崩坏
+    RESET = "reset"         # 170-180s 强制重置
 ```
+
+> 注:标称值对外说"2 分钟",实际运行约 3 分钟,硬上限 3.5 分钟。见 ADR-0015。
 
 #### 4.6.2 WorldState 字段
 ```python
@@ -262,7 +278,7 @@ class WorldState:
 | `timer_tick` | asyncio 每 0.1s | elapsed += 0.1, erosion += 0.08 |
 | `stage_advance` | elapsed 跨越阈值 | Stage 前进 |
 | `user_intent_received` | LLM 返回 `action_intent` 非空 | FSM 校验 → 允许则改 WorldState |
-| `cycle_reset` | elapsed >= 120 或手动 | 全量 reset → IDLE |
+| `cycle_reset` | elapsed >= 180 或手动(硬上限 210s) | 全量 reset → IDLE |
 | `user_barge_in` | VAD 触发 | 中断 TTS + LLM 流 |
 
 ---
@@ -394,7 +410,7 @@ lambda2-o/
 │   │
 │   ├── llm/
 │   │   ├── __init__.py
-│   │   ├── sessions.py                # 4 个独立 session 管理
+│   │   ├── sessions.py                # 主体 session + DM 软层 session 管理
 │   │   ├── router.py                  # LiteLLM 调用封装
 │   │   ├── schema.py                  # pydantic 模型(§5.1)
 │   │   ├── fewshots.py                # 各角色 few-shot 示例
@@ -418,7 +434,7 @@ lambda2-o/
 │   │   ├── fsm.py                     # 状态机
 │   │   ├── events.py                  # 事件总线
 │   │   ├── scenes.py                  # 剧情节点定义
-│   │   └── timeline.py                # 2 分钟时间轴驱动
+│   │   └── timeline.py                # 轮回时间轴驱动(标称 2min / 实际 3min / 上限 3.5min)
 │   │
 │   └── orchestrator.py                # 全局调度器
 │
@@ -682,12 +698,12 @@ deploy-tts:
 
 ## 10. 开发路线
 
-### Phase 0 · 骨架(目标: 1 天)
+### Phase 0 · 骨架(目标: 1 天) ✅
 - [x] 项目结构初始化
-- [ ] uv + pyproject.toml
-- [ ] `.env.example` + `config.py`
-- [ ] `protocol/llm_schema.py` + 单测
-- [ ] Justfile + check_env.py 雏形
+- [x] uv + pyproject.toml
+- [x] `.env.example` + `config.py`
+- [x] `lambda2/llm/schema.py` + 单测
+- [x] Justfile + check_env.py 雏形
 
 ### Phase 1 · LLM 单角色单轮(目标: 1-2 天)
 - [ ] LiteLLM 调通(qwen-max 或 doubao-pro)
@@ -709,9 +725,9 @@ deploy-tts:
 - [ ] 预录音频生成脚本
 
 ### Phase 4 · 多角色 + 状态机(目标: 2 天)
-- [ ] 4 session 并行
+- [ ] 单主体 session + DM 软层调度 (ADR-0016)
 - [ ] DM 路由逻辑
-- [ ] FSM 3 阶段切换 + 2 分钟计时
+- [ ] FSM 3 阶段切换 + 轮回计时(硬上限 3.5min, ADR-0015)
 - [ ] WorldState 热更新 + pub/sub 事件
 
 ### Phase 5 · 音频特效 + 场景(目标: 2 天)
@@ -727,7 +743,7 @@ deploy-tts:
 - [ ] 4G 热点切换演练
 
 ### Phase 7 · 剧情 + 彩排(目标: 3 天)
-- [ ] 完整 2 分钟剧本(3 角色 + DM)
+- [ ] 完整轮回剧本(主体 + DM + 环境角色,实际时长约 3min)
 - [ ] 插 U 盘、陨石、马兆淹水等关键节点 FSM 编码
 - [ ] 同学试玩 10 轮,记录 BUG
 - [ ] 预录兜底库完整生成
@@ -846,7 +862,7 @@ deploy-tts:
 - [ ] 确认校园嘉年华摊位位置、电源、桌椅、时段
 
 ### 待设计
-- [ ] 具体 2 分钟剧本(3 角色 + DM)
+- [ ] 具体轮回剧本(主体 + DM + 环境角色,实际时长约 3min)
 - [ ] 每个剧情节点的触发条件 FSM 表
 - [ ] "修服务器插 U 盘" 这种复合场景的 FSM + 音效映射
 - [ ] 展位立牌文案 + 合规声明
